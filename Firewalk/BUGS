@@ -1,0 +1,17 @@
+===============================================================================
+    $Id: BUGS,v 1.1.1.1 2002/05/08 16:28:34 route Exp $
+    FIREWALK 5.0 (c) 1998 - 2002 Mike D. Schiffman <mike@infonexus.com>
+                                 http://www.packetfactory.net/firewalk
+===============================================================================
+
+
+    5.0 BUG LIST
+
+    - When doing a UDP scan if the target is adjacent to the metric we will
+      get all sorts of unpredictable results.  This is because the packet
+      is reaching the metric host with a TTL of 0, which apparently not all
+      routers and Internet hosts handle the same.  Firewalk will alert you
+      to this with the "A!" mnemonic.
+
+
+EOF

@@ -1,0 +1,2260 @@
+/*
+ *  $Id: firewalk.h,v 1.5 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  firewalk.h - Interface
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#ifndef _FIREWALK_H
+#define _FIREWALK_H
+
+#include <setjmp.h>
+#include <ctype.h>
+#include <pcap.h>
+#include <dnet.h>
+#include <libnet.h>
+
+#define FW_BANNER  "Firewalk (c) 2002 Mike D. Schiffman \
+<mike@infonexus.com>\nhttp://www.packetfactory.net/firewalk\n\
+for more information.\n"
+
+/* responses for the ramping phase */
+#define FW_NO_REPLY                     0x00
+#define FW_PACKET_IS_BORING             0x01
+#define FW_PACKET_IS_TTL_EX_EN_ROUTE    0x02
+#define FW_PACKET_IS_UNREACH_EN_ROUTE   0x03
+#define FW_PACKET_IS_TERMINAL_TTL_EX    0x04
+#define FW_PACKET_IS_TERMINAL_UNREACH   0x05
+#define FW_PACKET_IS_TERMINAL_SYNACK    0x06
+#define FW_PACKET_IS_TERMINAL_RST       0x07
+
+/* responses for the scanning phase */
+#define FW_PORT_IS_OPEN_SYNACK          0x08
+#define FW_PORT_IS_OPEN_RST             0x09
+#define FW_PORT_IS_OPEN_UNREACH         0x0a
+#define FW_PORT_IS_OPEN_TTL_EX          0x0b
+
+/* misc responses */
+#define FW_ABORT_SCAN                   0xfd
+#define FW_USER_INTERRUPT               0xfe
+#define FW_SERIOUS_ERROR                0xff
+
+/* default libpcap timeout */
+#define FW_REPLY_TIMEOUT                0x02   
+
+/* snapshot length */
+#define FW_SNAPLEN                      0x60
+#define FW_DEFAULT_PORT_LIST           "1-130,139,1025"
+
+/* various minimums and maximums */
+#define FW_PORT_MAX                     0xffff
+#define FW_PORT_MIN                     0x00
+#define FW_PCAP_TIMEOUT_MAX             0x3e8
+#define FW_PCAP_TIMEOUT_MIN             0x01
+#define FW_IP_HOP_MAX                   0x19
+#define FW_IP_HOP_MIN                   0x01
+#define FW_XV_MAX                       0x08
+#define FW_XV_MIN                       0x01
+
+/* BPF filter strings */
+#define FW_BPF_FILTER_UDP  "icmp[0] == 11 or icmp[0] == 3 or udp"
+#define FW_BPF_FILTER_TCP  "icmp[0] == 11 or icmp[0] == 3 or tcp[13] ==\
+                            0x12 or tcp[13] == 0x4 or tcp[13] == 0x14"
+
+/* checks if an IP packet inside of ICMP error message is ours */
+#define FW_IS_OURS(ip, fp)                  \
+        (ntohs(ip->ip_id) ==                \
+        (*fp)->id && ip->ip_src.s_addr ==   \
+        (*fp)->sin.sin_addr.s_addr) !=0
+
+/* firewalk statistics structure */
+struct firepack_stats
+{
+    u_short ports_total;            /* number of ports scanned */
+    u_short ports_open;             /* open ports */
+    u_short ports_unknown;          /* unknown ports */
+    u_long packets_sent;            /* packets sent */
+    u_long packets_err;             /* packets errors */
+    u_long packets_caught;          /* packets we caught total */
+    u_short packets_caught_interesting; /* packets we cared about */
+};
+
+/* main monolithic firewalk context structure */
+struct firepack
+{
+    char *device;                   /* interface */
+    u_char *packet;                 /* packet captured from the wire */
+    pcap_t *p;                      /* libpcap context */
+    libnet_t *l;                    /* libnet context */
+    libnet_plist_t *plist;          /* linked list of ports */
+    u_short ttl;                    /* starting IP TTL */
+    u_short sport;                  /* source port */
+    u_short dport;                  /* ramping destination port */
+    u_short id;                     /* firepack packet ID */
+    u_short packet_size;            /* outgoing packet size */
+    u_char xv;                      /* expiry vector */
+    u_char flags;                   /* internal flags used by the program */
+#define FW_RESOLVE      0x01        /* resolve IP addresses */
+#define FW_STRICT_RFC   0x02        /* strict RFC 793 compliance */
+#define FW_BOUND        0x04        /* bound scan */
+#define FW_FINGERPRINT  0x08        /* fingerprint (TCP only) */
+    int packet_offset;              /* IP packet offset */
+    int protocol;                   /* firewalking protocol to use */
+    int pcap_timeout;               /* packet capturing timeout */
+    u_long gateway;                 /* gateway to probe */
+    u_long metric;                  /* metric host */
+    u_long seq;                     /* TCP sequence number used */
+    libnet_ptag_t ip;               /* ip ptag */
+    libnet_ptag_t udp;              /* udp ptag */
+    libnet_ptag_t tcp;              /* tcp ptag */
+    libnet_ptag_t icmp;             /* icmp ptag */
+    struct sockaddr_in sin;         /* socket address structure */
+    struct firepack_stats stats;    /* stats */
+#define FW_ERRBUF_SIZE  0x100       /* 256 bytes */
+    char errbuf[FW_ERRBUF_SIZE];    /* errors here */
+};
+
+/* initializes firewalk context */
+int                                 /* 1 on success -1 or failure */
+fw_init_context(
+    struct firepack **,             /* firewalk context */
+    char *
+    );
+
+/* initialize firewalk networking primitives */
+int                                 /* 1 on success -1 or failure */
+fw_init_net(
+    struct firepack **,             /* firewalk context */
+    char *,                         /* target gateway */
+    char *,                         /* metric */
+    char *                          /* port list or NULL */
+    );
+
+/* ramping/scanning driver */
+int
+firewalk(
+    struct firepack **              /* firewalk context */
+    );
+
+/* build initial probe template */
+int                                 /* 1 on success -1 or failure */
+fw_packet_build_probe(
+    struct firepack **              /* firewalk context */
+    );
+
+/* build UDP header */
+int                                 /* 1 on success -1 or failure */
+fw_packet_build_udp(
+    struct firepack **              /* firewalk context */
+    );
+
+/* build TCP header */
+int                                 /* 1 on success -1 or failure */
+fw_packet_build_tcp(
+    struct firepack **              /* firewalk context */
+    );
+
+/* build ICMP header */
+int                                 /* 1 on success -1 or failure */
+fw_packet_build_icmp(
+    struct firepack **              /* firewalk context */
+    );
+
+/* capture packet from network */
+int                                 /* -1 on failure or packet code */
+fw_packet_capture(
+    struct firepack **              /* firewalk context */
+    );
+
+/* sets libpcap BPF filter */
+int                                 /* 1 on success -1 or failure */
+fw_set_pcap_filter(
+    char *,             /* filter code to install */
+    struct firepack **              /* firewalk context */
+    );
+
+/* injects packet to network */
+int                                 /* 1 on success -1 or failure */
+fw_packet_inject(
+    struct firepack **              /* firewalk context */
+    );
+
+/* updates packet template */
+int                                 /* 1 on success -1 or failure */
+fw_packet_update_probe(
+    struct firepack **,             /* firewalk context */
+    u_short                         /* 0 for ramping, cport for scanning */
+    );
+
+/* verifies a ramping response */
+int                                 /* packet code */
+fw_packet_verify_ramp(
+    struct firepack **              /* firewalk context */
+    );
+
+/* verifies a scanning response */
+int                                 /* packet code */
+fw_packet_verify_scan(
+    struct firepack **              /* firewalk context */
+    );
+
+/* writes info to the user */
+void
+fw_report(
+    int,                            /* packet class */
+    struct firepack **              /* firewalk context */
+    );
+
+
+/* looks up the ICMP unreachable code of a response */
+char *                              /* unreachable code */
+fw_get_unreach_code(
+    struct firepack **              /* firewalk context */
+    );
+
+/* report statistics to the user */
+void
+fw_report_stats(
+    struct firepack **              /* firewalk context */
+    );
+
+/* installs a new signal handler for a specified signal */
+int                                 /* 1 on success -1 or failure */
+catch_sig(
+    int,                            /* signal to catch */
+    void (*)()                      /* new signal handler */
+    );
+
+/* handles SIGINT from user */
+void
+catch_sigint(
+    int                             /* unused */
+    );
+
+/* converts a string to an int within the bounds specified */
+int
+fw_str2int(
+    register const char *,          /* value to convert */
+    register const char *,          /* canonical definition */
+    register int,                   /* minimum */
+    register int);                  /* maximum */
+
+/* coverts canonical protocol to integer representation */
+int                                 /* -1 on failure or protocol */
+fw_prot_select(
+    char *                          /* protocol */
+    );
+
+/* shutdown firewalk */
+void
+fw_shutdown(
+    struct firepack **              /* firewalk context */
+    );
+
+/* dump usage */
+void
+usage(
+    u_char *                        /* argv[0] */
+    );
+
+#endif /* _FIREWALK_H */
+
+/* EOF */
+/*
+ *  $Id: unreachables.h,v 1.2 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  unreachables.h - ICMP unreachable codes
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#ifndef _FW_UNREACHABLES_H
+#define _FW_UNREACHABLES_H
+
+char *unreachables[] =
+{
+    "ICMP_UNREACH_NET",
+    "ICMP_UNREACH_HOST",
+    "ICMP_UNREACH_PROTOCOL",
+    "ICMP_UNREACH_PORT",
+    "ICMP_UNREACH_NEEDFRAG",
+    "ICMP_UNREACH_SRCFAIL",
+    "ICMP_UNREACH_NET_UNKNOWN",
+    "ICMP_UNREACH_HOST_UNKNOWN",
+    "ICMP_UNREACH_ISOLATED",
+    "ICMP_UNREACH_NET_PROHIB",
+    "ICMP_UNREACH_HOST_PROHIB",
+    "ICMP_UNREACH_TOSNET",
+    "ICMP_UNREACH_TOSHOST",
+    "ICMP_UNREACH_FILTER_PROHIB",
+    "ICMP_UNREACH_HOST_PRECEDENCE",
+    "ICMP_UNREACH_PRECEDENCE_CUTOFF",
+    0
+};
+
+#endif /* _FW_UNREACHABLES_H */
+
+/* EOF */
+/*
+ *  $Id: firewalk.c,v 1.2 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  firewalk.c - Scanning driver
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+firewalk(struct firepack **fp)
+{
+    int done, i, j;
+    u_short bport, cport, eport;
+
+    /* inform the user what's what */
+    printf("%s-based scan.\n",
+            (*fp)->protocol == IPPROTO_TCP ? "TCP" : "UDP");
+    printf("Ramping phase source port: %d, destination port: %d\n",
+            (*fp)->sport, (*fp)->dport);
+    if ((*fp)->flags & FW_STRICT_RFC && (*fp)->protocol == IPPROTO_TCP)
+    {
+        printf("Using strict RFC adherence.\n");
+    }
+    printf("Hotfoot through %s using %s as a metric.\n",
+            libnet_addr2name4(((*fp)->gateway),
+            ((*fp)->flags) & FW_RESOLVE),
+            libnet_addr2name4(((*fp)->metric),
+            ((*fp)->flags) & FW_RESOLVE));
+
+    /*
+     *  PHASE ONE: Firewalk hopcount ramping
+     *  A standard Traceroute-style IP expiry scan is initiated towards
+     *  the metric, with the intent being to find how many hops away the
+     *  target gateway is from the scanning host.  We'll increment the
+     *  hopcounter and update packet template each pass through the loop.
+     */
+    printf("Ramping Phase:\n");
+    for (done = 0, i = 0; !done && i < FW_IP_HOP_MAX; i++)
+    {
+        /* send a series of probes (currently only one) */
+        for (j = 0; j < 1; j++)
+        {
+            fprintf(stderr, "%2d (TTL %2d): ", i + 1, (*fp)->ttl);
+            if (fw_packet_inject(fp) == -1)
+            {
+                /*
+                 *  Perhaps this write error was transient.  We'll hope
+                 *  for the best.  Inform the user and continue.
+                 */
+                fprintf(stderr, "fw_packet_inject(): %s\n",
+                        (*fp)->errbuf);
+                continue;
+            }
+            switch (fw_packet_capture(fp))
+            {
+                case FW_PACKET_IS_UNREACH_EN_ROUTE:
+                case FW_PACKET_IS_TTL_EX_EN_ROUTE:
+                    if ((*fp)->flags & FW_BOUND)
+                    {
+                        printf("Binding host reached.\n");
+                        done = 1;
+                    }
+                    break;
+                case FW_PACKET_IS_TERMINAL_TTL_EX:
+                case FW_PACKET_IS_TERMINAL_UNREACH:
+                case FW_PACKET_IS_TERMINAL_SYNACK:
+                case FW_PACKET_IS_TERMINAL_RST:
+                    /* any terminal response will end phase one */
+                    done = 1;
+                    break;
+                case -1:
+                case FW_SERIOUS_ERROR:
+                    /* err msg set in fw_packet_capture() */
+                    return (FW_SERIOUS_ERROR);
+                case FW_USER_INTERRUPT:
+                    /* user hit ctrl-c */
+                    return (FW_USER_INTERRUPT);
+            }
+        }
+        if (!done)
+        {
+            if (fw_packet_update_probe(fp, 0) == -1)
+            {
+                /* error msg set in fw_packet_update_probe */
+                return (-1);
+            }
+        }
+    }
+    if (done && !((*fp)->flags & FW_BOUND))
+    {
+        /*
+         *  If we're "done" but not "bound" then we hit the metric
+         *  before we hit the target gateway.  This means the target
+         *  gateway is not en route to the metric.  Game's over kids.
+         */
+        sprintf((*fp)->errbuf, 
+                "metric responded before target; must not be en route");
+        return (FW_ABORT_SCAN);
+    }
+    if (!done)
+    {
+        /* if we fall through down here, we've exceeded our hopcount */
+        sprintf((*fp)->errbuf, "hopcount exceeded");
+        return (FW_ABORT_SCAN);
+    }
+
+    /*
+     *  PHASE TWO: Firewalk scanning
+     *  A series of probes are sent from to the metric with the bound IP
+     *  TTL. If a given probe is accepted through the target gateway's
+     *  ACL, we will receive an ICMP TTL expired in transit from the
+     *  binding host If we receive no response after the timeout expires,
+     *  it is assumed the probe violated the ACL on the target and was
+     *  dropped.
+     */
+    (*fp)->ttl += (*fp)->xv;
+    printf("Scan bound at %d hops.\n", (*fp)->ttl);
+    printf("Scanning Phase: \n");
+    for (done = 0, i = 0; !done; i++)
+    {
+        if (!libnet_plist_chain_next_pair((*fp)->plist, &bport, &eport))
+        {
+            /* we've exhausted our portlist and we're done */
+            done = 1;
+            continue;
+        }
+        while (!(bport > eport) && bport != 0)
+        {
+            cport = bport++;
+            if (fw_packet_update_probe(fp, cport) == -1)
+            {
+                /* error msg set in fw_packet_update_probe */
+                return (-1);
+            }
+
+            /* send a series of probes (currently only one) */
+            for (j = 0; j < 1; j++)
+            {
+                fprintf(stderr, "port %3d: ", cport);
+                (*fp)->stats.ports_total++;
+                if (fw_packet_inject(fp) == -1)
+                {
+                    /*
+                     *  Perhaps this write error was transient.  We'll
+                     *  hope for the best.  Inform the user and continue.
+                     */
+                    fprintf(stderr, "fw_packet_inject(): %s\n",
+                            (*fp)->errbuf);
+                    continue;
+                }
+                /* we don't care what the return value is this time */
+                switch(fw_packet_capture(fp))
+                {
+                    case FW_USER_INTERRUPT:
+                        return (FW_USER_INTERRUPT);
+                    case -1:
+                    case FW_SERIOUS_ERROR:
+                        /* err msg set in fw_packet_capture() */
+                        return (FW_SERIOUS_ERROR);
+                    default:
+                        /* empty */
+                }
+            }
+        }
+    }
+    return (1);
+}
+
+/* EOF */
+/*
+ *  $Id: init.c,v 1.4 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  init.c - Main loop driver initialization
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+fw_init_context(struct firepack **fp, char *errbuf)
+{
+    *fp = (struct firepack *)malloc(sizeof(struct firepack));
+    if (*fp == NULL)
+    {
+        snprintf(errbuf, FW_ERRBUF_SIZE, "malloc(): %s", strerror(errno));
+        return (-1);
+    }
+    memset(*fp, 0, sizeof(struct firepack));
+
+    /* set defaults here */
+    (*fp)->ttl          = 1;       /* initial probe IP TTL */
+    (*fp)->sport        = 53;      /* source port (TCP and UDP) */
+    (*fp)->dport        = 33434;   /* ala traceroute */
+    (*fp)->protocol     = IPPROTO_UDP;
+    (*fp)->id           = getpid();
+    (*fp)->pcap_timeout = FW_REPLY_TIMEOUT;
+    (*fp)->xv           = 1;
+    (*fp)->flags        |= FW_RESOLVE;
+
+    /* setup our signal handler to handle a ctrl-c */
+    if (catch_sig(SIGINT, catch_sigint) == -1)
+    {
+        snprintf(errbuf, FW_ERRBUF_SIZE, "catch_sig(): %s", strerror(errno));
+        return (-1);
+    }
+
+    return (1);
+}
+
+
+int
+fw_init_net(struct firepack **fp, char *gw, char *m, char *port_list)
+{
+#if HAVE_BPF
+    int one;
+#endif
+    char errbuf[PCAP_ERRBUF_SIZE];
+
+    /* get a libnet context */
+    (*fp)->l = libnet_init(LIBNET_LINK, (*fp)->device, errbuf);
+    if ((*fp)->l == NULL)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "libnet_init(): %s",
+                errbuf);
+        return (-1);
+    }
+
+    /* get our device if the user didn't specify one*/
+    if ((*fp)->device == NULL)
+    {
+        (*fp)->device = libnet_getdevice((*fp)->l);
+    }
+
+    /* get the source address of our outgoing interface */
+    (*fp)->sin.sin_addr.s_addr = libnet_get_ipaddr4((*fp)->l);
+
+    /* setup the target gateway */
+    if (((*fp)->gateway = libnet_name2addr4((*fp)->l, gw, 1)) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                "libnet_name2addr4(): %s (target gateway: %s)",
+                libnet_geterror((*fp)->l), gw);
+        return (-1);
+    }
+
+    /* setup the metric */
+    if (((*fp)->metric = libnet_name2addr4((*fp)->l, m, 1)) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                "libnet_name2addr4(): %s (metric: %s)",
+                libnet_geterror((*fp)->l), m);
+        return (-1);
+    }
+
+    /* sanity check */
+    if ((*fp)->gateway == (*fp)->metric)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                "target gateway and metric cannot be the same");
+        return (-1);
+    }
+
+    /* get our port list stuff situated */
+    if (libnet_plist_chain_new((*fp)->l, &(*fp)->plist,
+        port_list == NULL ? strdup(FW_DEFAULT_PORT_LIST) :
+        port_list) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+            "libnet_plist_chain_new(): %s\n", libnet_geterror((*fp)->l));
+        return (-1);
+    }
+
+    /* get a pcap context */
+    (*fp)->p = pcap_open_live((*fp)->device, FW_SNAPLEN, 0, 0, errbuf);
+    if (((*fp)->p) == NULL)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "pcap_open_live(): %s",
+                errbuf);
+        return (-1);
+    }
+
+#if HAVE_BPF
+    /*
+     *  BPF, by default, will buffer packets inside the kernel until
+     *  either the timer expires (which we do not use) or when the buffer
+     *  fills up.  This is not sufficient for us since we could miss
+     *  responses to our probes.  So we set BIOCIMMEDIATE to tell BPF
+     *  to return immediately when it gets a packet.  This is pretty much
+     *  the same behavior we see with Linux which returns every time it
+     *  sees a packet.  This is less than efficient since we're spending
+     *  more time interrupting the kernel, but hey, we gotta get our
+     *  work done!
+     */
+    one = 1;
+    if (ioctl(pcap_fileno((*fp)->p), BIOCIMMEDIATE, &one) < 0)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                "ioctl(): BIOCIMMEDIATE: %s", strerror(errno));
+        return (-1);
+    }
+#endif
+
+    /* get the datalink size */
+    switch (pcap_datalink((*fp)->p))
+    {
+        case DLT_SLIP:
+            (*fp)->packet_offset = 0x10;
+            break;
+        case DLT_RAW:
+            (*fp)->packet_offset = 0x00;
+            break;             
+        case DLT_PPP:
+            (*fp)->packet_offset = 0x04;
+            break;
+        case DLT_EN10MB:
+        default:
+            (*fp)->packet_offset = 0x0e;
+            break;
+    }
+
+    /*
+     *  Set pcap filter and determine outgoing packet size.  The filter
+     *  will be determined by the scanning protocol: 
+     *  UDP scan:
+     *  icmp[0] == 11 or icmp[0] == 3 or udp
+     *  TCP scan:
+     *  icmp[0] == 11 or icmp[0] == 3 or tcp[14] == 0x12 or tcp[14] \
+     *  == 0x4 or tcp[14] == 0x14
+     */
+    switch ((*fp)->protocol)
+    {
+        case IPPROTO_UDP:
+            if (fw_set_pcap_filter(FW_BPF_FILTER_UDP, fp) == -1)
+            {
+                /* err msg set in fw_set_pcap_filter() */
+                return (-1);
+            }
+            /* IP + UDP */
+            (*fp)->packet_size = LIBNET_IPV4_H + LIBNET_UDP_H;
+            break;
+        case IPPROTO_TCP:
+            if (fw_set_pcap_filter(FW_BPF_FILTER_TCP, fp) == -1)
+            {
+                /* err msg set in fw_set_pcap_filter() */
+                return (-1);
+            }
+            /* IP + TCP */
+            (*fp)->packet_size = LIBNET_IPV4_H + LIBNET_TCP_H;
+
+            /* randomize the TCP sequence number */
+            libnet_seed_prand((*fp)->l);
+            (*fp)->seq = libnet_get_prand(LIBNET_PRu32);
+            break;
+        default:
+            sprintf((*fp)->errbuf,
+                    "fw_init_network(): unsupported protocol");
+            return (-1);
+    }
+
+    /*
+     *  Build a probe packet template.  We'll use this packet template
+     *  over and over for each write to the network, modifying certain
+     *  fields (IP TTL, UDP/TCP ports and of course checksums as we go).
+     */
+    if (fw_packet_build_probe(fp) == -1)
+    {
+        /* error msg set in fw_packet_build_probe() */
+        return (-1);
+    }
+    return (1);
+}
+
+
+void
+fw_shutdown(struct firepack **fp)
+{
+    if (*fp)
+    {
+        if ((*fp)->p)
+        {
+            pcap_close((*fp)->p);
+        }
+        if ((*fp)->l)
+        {
+            libnet_destroy((*fp)->l);
+        }
+        if ((*fp)->plist)
+        {
+            libnet_plist_chain_free((*fp)->plist);
+        }
+
+        free(*fp);
+        *fp = NULL;
+    }
+}
+
+/* EOF */
+/*
+ *  $Id: main.c,v 1.5 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  main.c - Main control logic
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+#include "../version.h"
+
+int
+main(int argc, char *argv[])
+{
+    int c;
+    struct firepack *fp;
+    char *port_list = NULL;
+    char errbuf[FW_ERRBUF_SIZE];
+
+    printf("Firewalk 5.0 [gateway ACL scanner]\n");
+
+    /*
+     *  Initialize the main control context.  We keep all of our
+     *  program state here and this is used by just about every
+     *  function in the program.
+     */
+    if (fw_init_context(&fp, errbuf) == -1)
+    {
+        fprintf(stderr, "fw_init_control(): %s\n", errbuf);
+        goto done;
+    }
+
+    /* process commandline arguments */
+    while ((c = getopt(argc, argv, "d:fhi:no:p:rS:s:T:t:vx:")) != EOF)
+    {
+        switch (c)
+        {
+            case 'd':
+                /* destination port to use during ramping phase */
+                fp->dport = fw_str2int(optarg, "ramping destination port",
+                        FW_PORT_MIN, FW_PORT_MAX);
+                break;                
+            case 'f':
+                /* stack fingerprint of each host */
+                fp->flags |= FW_FINGERPRINT;
+                break;
+            case 'h':
+                /* program help */
+                usage(argv[0]);
+                break;
+            case 'i':
+                /* interface */
+                fp->device = optarg;
+                break;
+            case 'n':
+                /* do not use names */
+                fp->flags &= ~FW_RESOLVE;
+                break;
+            case 'p':
+                /* select firewalk protocol */
+                fp->protocol = fw_prot_select(optarg);
+                break;
+            case 'r':
+                /* Strict RFC adherence */
+                fp->flags |= FW_STRICT_RFC;
+                break;
+            case 'S':
+                /* scan these ports */
+                port_list = optarg;
+                break;
+            case 's':
+                /* source port */
+                fp->sport = fw_str2int(optarg, "source port",
+                        FW_PORT_MIN, FW_PORT_MAX);
+                break;
+            case 'T':
+                /* time to wait for packets from other end */
+                    fp->pcap_timeout = fw_str2int(optarg, "read timer",
+                        FW_PCAP_TIMEOUT_MIN, FW_PCAP_TIMEOUT_MAX);
+                break;
+            case 't':
+                /* set initial IP TTL */
+                fp->ttl = fw_str2int(optarg, "initial TTL",
+                        FW_IP_HOP_MIN, FW_IP_HOP_MAX);
+                break;
+            case 'v':
+                /* version */
+                printf(FW_BANNER "version : %s\n", VERSION);
+                goto done;
+            case 'x':
+                /* expire vector */
+                fp->xv = fw_str2int(optarg, "expire vector",
+                        FW_XV_MIN, FW_XV_MAX);
+                break;
+            default:
+                usage(argv[0]);
+        }
+    }
+
+    c = argc - optind;
+    if (c != 2)
+    {
+        /*
+         *  We should only have two arguments at this point, the target
+         *  gateway and the metric.
+         */
+        usage(argv[0]);
+    }
+    
+    /* initialize the network components */
+    if (fw_init_net(&fp, argv[optind], argv[optind + 1], port_list) == -1)
+    {
+        fprintf(stderr, "fw_init_network(): %s\n", fp->errbuf);
+        goto done;
+    }
+    printf("Firewalk state initialization completed successfully.\n");
+
+    /* execute scan: phase one, and hopefully phase two */
+    switch (firewalk(&fp))
+    {
+        case -1:
+        case FW_SERIOUS_ERROR:
+            /* grievous error of some sort */
+            fprintf(stderr, "firewalk(): %s\n", fp->errbuf);
+            break;
+        case FW_ABORT_SCAN:
+            /* hop count exceeded or metric en route */
+            fprintf(stderr, "Scan aborted: %s.\n", fp->errbuf);
+            break;
+        case FW_USER_INTERRUPT:
+            fprintf(stderr, "Scan aborted by user.\n");
+            break;
+        default:
+            printf("\nScan completed successfully.\n");
+            break;
+    }
+done:
+    fw_report_stats(&fp);
+    fw_shutdown(&fp);
+    /* we should probably record proper exit status */
+    return (EXIT_SUCCESS);
+}
+
+
+void
+usage(u_char *argv0)
+{
+    fprintf(stderr, "Usage : %s [options] target_gateway metric\n"
+        "\t\t   [-d %d - %d] destination port to use (ramping phase)\n"
+        "\t\t   [-h] program help\n"
+        "\t\t   [-i device] interface\n"
+        "\t\t   [-n] do not resolve IP addresses into hostnames\n"
+        "\t\t   [-p TCP | UDP] firewalk protocol\n"
+        "\t\t   [-r] strict RFC adherence\n"
+        "\t\t   [-S x - y, z] port range to scan\n"
+        "\t\t   [-s %d - %d] source port\n"
+        "\t\t   [-T 1 - 1000] packet read timeout in ms\n"
+        "\t\t   [-t 1 - %d] IP time to live\n"
+        "\t\t   [-v] program version\n"
+        "\t\t   [-x 1 - %d] expire vector\n"
+        "\n",   argv0, FW_PORT_MIN, FW_PORT_MAX, FW_PORT_MIN, FW_PORT_MAX,
+                FW_IP_HOP_MAX, FW_XV_MAX);
+        exit(EXIT_SUCCESS);
+}
+
+
+/* EOF */
+/*
+ *  $Id: packet_build.c,v 1.2 2002/05/14 00:17:52 route Exp $
+ *
+ *  Firewalk 5.0
+ *  packet_build.c - Packet construction code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+fw_packet_build_probe(struct firepack **fp)
+{
+    arp_t *a;
+    route_t *r;
+    struct arp_entry arp;
+    struct route_entry route;
+
+    /* first build our transport layer header */
+    switch ((*fp)->protocol)
+    {
+        case IPPROTO_UDP:
+            if (fw_packet_build_udp(fp) == -1)
+            {
+                /* error msg set in fw_packet_build_udp() */
+                return (-1);
+            }
+            break;
+        case IPPROTO_TCP:
+            if (fw_packet_build_tcp(fp) == -1)
+            {
+                /* error msg set in fw_packet_build_tcp() */
+                return (-1);
+            }
+            break;
+        default:
+            sprintf((*fp)->errbuf,
+                    "fw_packet_build_probe(): unknown protocol");
+            return (-1);
+    }
+
+    /* build our IPv4 header */
+    (*fp)->ip = libnet_build_ipv4(
+            (*fp)->packet_size,                 /* packetlength */
+            0,                                  /* IP tos */
+            (*fp)->id,                          /* IP id */
+            0,                                  /* IP frag bits */
+            (*fp)->ttl,                         /* IP time to live */
+            (*fp)->protocol,                    /* transport protocol */
+            0,                                  /* checksum */
+            (*fp)->sin.sin_addr.s_addr,         /* IP source */
+            (*fp)->metric,                      /* IP destination */
+            NULL,                               /* IP payload */
+            0,                                  /* IP payload size */
+            (*fp)->l,                           /* libnet context */
+            0);                                 /* No saved ptag */
+
+    if ((*fp)->ip == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "libnet_build_ipv4() %s",
+                libnet_geterror((*fp)->l));
+        return (-1);
+    }
+
+
+    /*
+     *  Now we need to get the MAC address of our first hop gateway.
+     *  Dnet to the rescue!  We start by doing a route table lookup
+     *  to determine the IP address we use to get to the
+     *  destination host (the metric).
+     */
+    r = route_open();
+    if (r == NULL)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "route_open()");
+        route_close(r);
+        return (-1);
+    }
+
+    /* convert the metric address to dnet's native addr_t format */
+    if (addr_aton(libnet_addr2name4((*fp)->metric, 0),
+            &route.route_dst) < 0)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "addr_aton()");
+        route_close(r);
+        return (-1);
+    }
+    /* get the route entry telling us how to reach the metric */
+    if (route_get(r, &route) < 0)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "route_get()");
+        route_close(r);
+        return (-1);
+    }
+    route_close(r);
+
+    a = arp_open();
+    if (a == NULL)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "arp_open()");
+        return (-1);        
+    }
+    /* get the MAC of the first hop gateway */
+    arp.arp_pa = route.route_gw;
+    if (arp_get(a, &arp) < 0)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "route_get()");
+        arp_close(a);
+        return (-1);
+    }
+    arp_close(a);
+
+    /* build our ethernet header */
+    if (libnet_autobuild_ethernet(
+            (u_char *)&arp.arp_ha.addr_eth,
+            ETHERTYPE_IP,
+            (*fp)->l) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                "libnet_autobuild_ethernet() %s",
+                libnet_geterror((*fp)->l));
+        arp_close(a);
+        return (-1);
+    }
+
+    return (1);
+}
+
+int
+fw_packet_build_udp(struct firepack **fp)
+{
+    /* build a UDP header */
+    (*fp)->udp = libnet_build_udp(
+            (*fp)->sport,                       /* source UDP port */
+            (*fp)->dport,                       /* dest UDP port */
+            (*fp)->packet_size - LIBNET_IPV4_H, /* UDP size */
+            0,                                  /* checksum */
+            NULL,                               /* IP payload */
+            0,                                  /* IP payload size */
+            (*fp)->l,                           /* libnet context */
+            0);                                 /* No saved ptag */
+
+    if ((*fp)->udp == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "libnet_build_udp() %s",
+                libnet_geterror((*fp)->l));
+        return (-1);
+    }
+    return (1);
+}
+
+int
+fw_packet_build_tcp(struct firepack **fp)
+{
+    /* build a TCP header */
+    (*fp)->tcp = libnet_build_tcp(
+            (*fp)->sport,                       /* source TCP port */
+            (*fp)->dport,                       /* dest TCP port */
+            (*fp)->seq,                         /* sequence number */
+            0L,                                 /* ACK number */
+            TH_SYN,                             /* control flags */
+            1024,                               /* window size */
+            0,                                  /* checksum */
+            0,                                  /* urgent */
+            (*fp)->packet_size - LIBNET_IPV4_H, /* TCP size */
+            NULL,                               /* IP payload */
+            0,                                  /* IP payload size */
+            (*fp)->l,                           /* libnet context */
+            0);                                 /* No saved ptag */
+
+    if ((*fp)->tcp == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "libnet_build_tcp() %s",
+                libnet_geterror((*fp)->l));
+        return (-1);
+    }
+    return (1);
+}
+
+
+/* EOF */
+/*
+ *  $Id: packet_capture.c,v 1.4 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  packet_capture.c - Packet capturing routines
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int loop = 1;
+
+int
+fw_packet_capture(struct firepack **fp)
+{
+    int pcap_fd, c, timed_out;
+    fd_set read_set;
+    struct timeval timeout;
+    struct pcap_pkthdr pc_hdr;
+
+    timeout.tv_sec = (*fp)->pcap_timeout;
+    timeout.tv_usec = 0;
+
+    pcap_fd = pcap_fileno((*fp)->p);
+    FD_ZERO(&read_set);
+    FD_SET(pcap_fd, &read_set);
+
+    for (timed_out = 0; !timed_out && loop; )
+    {
+        c = select(pcap_fd + 1, &read_set, 0, 0, &timeout);
+        switch (c)
+        {
+            case -1:
+                snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                        "select() %s", strerror(errno));
+                return (-1);
+            case 0:
+                timed_out = 1;
+                continue;
+            default:
+                if (FD_ISSET(pcap_fd, &read_set) == 0)
+                {
+                    timed_out = 1;
+                    continue;
+                }
+                /* fall through to read the packet */
+        }
+        (*fp)->packet = (u_char *)pcap_next((*fp)->p, &pc_hdr);
+        if ((*fp)->packet == NULL)
+        {
+            /* no NULL packets please */
+            continue;
+        }
+        (*fp)->stats.packets_caught++;
+
+        /*
+         *  Submit the packet for verification first based on scan type,
+         *  If we're not bound, we're still in phase one and need to
+         *  verify the ramping response.  If we are bound, we're in
+         *  phase two and we need to verify the terminal response.
+         *  Then process the response from the verification engine.
+         *  Report to the user if necessary and update the packet
+         *  statistics.
+         */
+        switch (!(((*fp)->flags) & FW_BOUND) ? fw_packet_verify_ramp(fp) :
+                fw_packet_verify_scan(fp))
+        {
+            case FW_PACKET_IS_TTL_EX_EN_ROUTE:
+                /* RAMPING: TTL expired en route to gateway (standard) */
+                fw_report(FW_PACKET_IS_TTL_EX_EN_ROUTE, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PACKET_IS_TTL_EX_EN_ROUTE);
+            case FW_PACKET_IS_UNREACH_EN_ROUTE:
+                /* RAMPING: Unreachable en route to gateway (uncommon) */
+                fw_report(FW_PACKET_IS_UNREACH_EN_ROUTE, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PACKET_IS_TTL_EX_EN_ROUTE);
+            case FW_PACKET_IS_TERMINAL_TTL_EX:
+                /* RAMPING: TTL expired at destination (rare) */
+                fw_report(FW_PACKET_IS_TERMINAL_TTL_EX, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PACKET_IS_TERMINAL_TTL_EX);
+            case FW_PACKET_IS_TERMINAL_UNREACH:
+                /* RAMPING: Unreachable at destination (uncommon) */
+                fw_report(FW_PACKET_IS_TERMINAL_UNREACH, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PACKET_IS_TERMINAL_UNREACH);
+            case FW_PACKET_IS_TERMINAL_SYNACK:
+                fw_report(FW_PACKET_IS_TERMINAL_SYNACK, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PACKET_IS_TERMINAL_SYNACK);
+            case FW_PACKET_IS_TERMINAL_RST:
+                fw_report(FW_PACKET_IS_TERMINAL_RST, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PACKET_IS_TERMINAL_RST);
+            case FW_PORT_IS_OPEN_SYNACK:
+                /* SCANNING: A response from an open TCP port */
+                fw_report(FW_PORT_IS_OPEN_SYNACK, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PORT_IS_OPEN_SYNACK);
+            case FW_PORT_IS_OPEN_RST:
+                /* SCANNING: A response from a closed TCP port */
+                fw_report(FW_PORT_IS_OPEN_RST, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PORT_IS_OPEN_RST);
+            case FW_PORT_IS_OPEN_UNREACH:
+                /* SCANNING: A port unreachable response */
+                fw_report(FW_PORT_IS_OPEN_UNREACH, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PORT_IS_OPEN_UNREACH);
+            case FW_PORT_IS_OPEN_TTL_EX:
+                /* SCANNING: A TTL expired */
+                fw_report(FW_PORT_IS_OPEN_TTL_EX, fp);
+                (*fp)->stats.packets_caught_interesting++;
+                return (FW_PORT_IS_OPEN_TTL_EX);
+            case FW_PACKET_IS_BORING:
+            default:
+                continue;
+        }
+    }
+    if (!loop)
+    {
+        return (FW_USER_INTERRUPT);
+    }
+    /*
+     *  If we get here, the scan timed out.  We either dropped a packet
+     *  somewhere or there is some filtering going on.
+     */
+    printf("*no response*\n");
+    fflush(stdout);
+    return (FW_NO_REPLY);
+}
+
+/* EOF */
+/*
+ *  $Id: packet_filter.c,v 1.2 2002/05/14 00:17:52 route Exp $
+ *
+ *  Firewalk 5.0
+ *  packet_filter.c - Packet filtering code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+fw_set_pcap_filter(char *filter, struct firepack **fp)
+{
+    struct bpf_program filter_code;
+    bpf_u_int32 local_net, netmask;
+    char errbuf[PCAP_ERRBUF_SIZE];
+
+    /* get the subnet mask of the interface */
+    if (pcap_lookupnet((*fp)->device, &local_net, &netmask, errbuf) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "pcap_lookupnet(): %s",
+                    errbuf);
+        return (-1);
+    } 
+
+    /* compile the BPF filter code */
+    if (pcap_compile((*fp)->p, &filter_code, filter, 1, netmask) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "pcap_compile(): %s",
+                pcap_geterr((*fp)->p));
+        return (-1);
+    }
+
+    /* apply the filter to the interface */
+    if (pcap_setfilter((*fp)->p, &filter_code) == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "pcap_setfilter(): %s",
+                pcap_geterr((*fp)->p));
+        return (-1);
+    }
+    return (1);
+}
+
+/* EOF */
+/*
+ *  $Id: packet_inject.c,v 1.2 2002/05/14 00:17:52 route Exp $
+ *
+ *  Firewalk 5.0
+ *  packet_inject.c - Packet injection code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+fw_packet_inject(struct firepack **fp)
+{
+    int n;
+
+    n = libnet_write((*fp)->l);
+    switch (n)
+    {
+        case -1:
+            (*fp)->stats.packets_err++;
+            snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                    "libnet_write() %s", libnet_geterror((*fp)->l));
+            return (-1);
+        default:
+            (*fp)->stats.packets_sent++;
+            return (1);
+    }
+}
+
+/* EOF */
+/*
+ *  $Id: packet_update.c,v 1.2 2002/05/14 00:17:52 route Exp $
+ *
+ *  Firewalk 5.0
+ *  packet_update.c - Packet updating code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+fw_packet_update_probe(struct firepack **fp, u_short cport)
+{
+    if (!((*fp)->flags & FW_BOUND))
+    {
+        /* phase one: just update IP TTL */
+        (*fp)->ttl++;
+    }
+    else
+    {
+        /* phase two; update port scanning probe */
+        switch ((*fp)->protocol)
+        {
+            case IPPROTO_TCP:
+                (*fp)->dport = cport;
+
+                (*fp)->tcp = libnet_build_tcp(
+                    (*fp)->sport,                       /* source TCP port */
+                    (*fp)->dport,                       /* dest TCP port */
+                    (*fp)->seq,                         /* sequence number */
+                    0L,                                 /* ACK number */
+                    TH_SYN,                             /* control flags */
+                    1024,                               /* window size */
+                    0,                                  /* checksum */
+                    0,                                  /* urgent */
+                    (*fp)->packet_size - LIBNET_IPV4_H, /* packet size */
+                    NULL,                               /* payload */
+                    0,                                  /* payload size */
+                    (*fp)->l,                           /* libnet context */
+                    (*fp)->tcp);                        /* TCP ptag */
+     
+                if ((*fp)->tcp == -1)
+                {       
+                    snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                        "libnet_build_tcp() %s",
+                        libnet_geterror((*fp)->l));
+                    return (-1);
+                }
+                break;
+            case IPPROTO_UDP:
+                (*fp)->dport = cport;
+
+                (*fp)->udp = libnet_build_udp(
+                    (*fp)->sport,                       /* source UDP port */
+                    (*fp)->dport,                       /* dest UDP port */
+                    (*fp)->packet_size - LIBNET_IPV4_H, /* size */
+                    0,                                  /* checksum */   
+                    NULL,                               /* payload */
+                    0,                                  /* payload size */
+                    (*fp)->l,                           /* libnet context */
+                    (*fp)->udp);                        /* udp ptag */
+     
+                if ((*fp)->udp == -1)
+                {       
+                    snprintf((*fp)->errbuf, FW_ERRBUF_SIZE,
+                        "libnet_build_udp() %s",
+                        libnet_geterror((*fp)->l));
+                    return (-1);
+                }
+                break;
+        }
+    }
+
+    (*fp)->ip = libnet_build_ipv4(
+            (*fp)->packet_size,                 /* packetlength */
+            0,                                  /* IP tos */
+            (*fp)->id,                          /* IP id */
+            0,                                  /* IP frag bits */
+            (*fp)->ttl,                         /* IP time to live */
+            (*fp)->protocol,                    /* transport protocol */
+            0,                                  /* checksum */
+            (*fp)->sin.sin_addr.s_addr,         /* IP source */
+            (*fp)->metric,                      /* IP destination */
+            NULL,                               /* IP payload */
+            0,                                  /* IP payload size */
+            (*fp)->l,                           /* libnet context */
+            (*fp)->ip);                         /* ip ptag */
+ 
+    if ((*fp)->ip == -1)
+    {
+        snprintf((*fp)->errbuf, FW_ERRBUF_SIZE, "libnet_build_ipv4() %s",
+                libnet_geterror((*fp)->l));
+        return (-1);
+    }
+
+    return (1);
+}
+
+/* EOF */
+/*
+ *  $Id: packet_verify.c,v 1.3 2002/05/14 20:20:39 route Exp $
+ *
+ *  Firewalk 5.0
+ *  packet_verify.c - Packet verification code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+int
+fw_packet_verify_ramp(struct firepack **fp)
+{
+    struct libnet_ipv4_hdr *ip_hdr;
+    struct libnet_icmpv4_hdr *icmp_hdr;
+    struct libnet_ipv4_hdr *o_ip_hdr;
+    struct libnet_tcp_hdr *tcp_hdr;
+
+    /* point to the IP header */
+    ip_hdr = (struct libnet_ipv4_hdr *)
+            ((*fp)->packet + (*fp)->packet_offset);
+
+    if (ip_hdr->ip_src.s_addr == (*fp)->sin.sin_addr.s_addr)
+    {
+        /* packets we send are of no interest to us here. */
+        return (FW_PACKET_IS_BORING);
+    }
+
+    switch (ip_hdr->ip_p)
+    {
+        case IPPROTO_ICMP:
+            icmp_hdr = (struct libnet_icmpv4_hdr *)
+                ((*fp)->packet + (*fp)->packet_offset + LIBNET_IPV4_H);
+
+            switch (icmp_hdr->icmp_type)
+            {
+                case ICMP_TIMXCEED:
+                    if (icmp_hdr->icmp_code != ICMP_TIMXCEED_INTRANS)
+                    {
+                        /*
+                         *  Packet was from an expired IP frag queue
+                         *  reassembly timer.  Nothing we want.
+                         */
+                        break;
+                    }
+                case ICMP_UNREACH:
+                    /*
+                     *  Point to the original IPv4 header inside the ICMP
+                     *  message's payload.  An IPv4 header is
+                     *  LIBNET_IPV4_H bytes long and both ICMP unreachable
+                     *  and time exeeed headers are 8 bytes.
+                     */
+                    o_ip_hdr = (struct libnet_ipv4_hdr *)
+                            ((*fp)->packet + (*fp)->packet_offset
+                            + LIBNET_IPV4_H + 8);
+
+                    /*
+                     *  Check the IP header of the packet that caused the
+                     *  unreachable for our markings which include:
+                     *  Original IP ID: set to the process id.
+                     *  Original IP source address: our source address.
+                     */
+                    if (!FW_IS_OURS(o_ip_hdr, fp))
+                    {
+                        break;
+                    }
+                    if (ip_hdr->ip_src.s_addr == (*fp)->metric)
+                    {
+                        /*
+                         *  ICMP response from our metric.  This ends
+                         *  our scan since we've reached the metric
+                         *  before the target gateway.
+                         */
+                        return ((icmp_hdr->icmp_type == ICMP_TIMXCEED) ?
+                                FW_PACKET_IS_TERMINAL_TTL_EX :
+                                FW_PACKET_IS_TERMINAL_UNREACH);
+                    }
+                    if (ip_hdr->ip_src.s_addr == (*fp)->gateway)
+                    {
+                        /*
+                         *  Response from our target gateway.
+                         */
+                        (*fp)->flags |= FW_BOUND;
+                    }
+                    /*
+                     *  If we get to this point, the packet is an
+                     *  ICMP response from an intermediate router.
+                     */
+                    return ((icmp_hdr->icmp_type == ICMP_TIMXCEED) ?
+                            FW_PACKET_IS_TTL_EX_EN_ROUTE :
+                            FW_PACKET_IS_UNREACH_EN_ROUTE);
+                    break;
+                default:
+                    break;
+            }
+        case IPPROTO_TCP:
+            if ((*fp)->protocol != IPPROTO_TCP)
+            {
+                /*
+                 *  We're only interested in TCP packets if this is a
+                 *  TCP-based scan.
+                 */
+                break;
+            }
+
+            tcp_hdr = (struct libnet_tcp_hdr *)
+                    ((*fp)->packet +
+                    (*fp)->packet_offset + LIBNET_IPV4_H);
+
+            if (!(tcp_hdr->th_flags & TH_SYN) &&
+                !(tcp_hdr->th_flags & TH_RST))
+            {
+                /*
+                 *  We only care about SYN|ACK and RST|ACK packets.
+                 *  The rest can burn.
+                 */
+                break;
+            }
+
+            if ((*fp)->flags & FW_STRICT_RFC)
+            {
+                /*
+                 *  Strict RFC compliance dictates that an RST or
+                 *  an SYN|ACK will have our SEQ + 1 as the ACK number
+                 *  also, the RST will have the ACK bit set).  This is of 
+                 *  course, assuming the packet is ours.
+                 */
+                if (ntohl(tcp_hdr->th_ack) != (*fp)->seq + 1)
+                {
+                    break;
+                }
+            }
+
+            if (ntohs(tcp_hdr->th_dport) == (*fp)->sport &&
+                    ntohs(tcp_hdr->th_sport) == (*fp)->dport)
+            {
+                /* this is most likely a response to our SYN probe */
+                return (((tcp_hdr->th_flags & TH_SYN) ?
+                        FW_PACKET_IS_TERMINAL_SYNACK :
+                        FW_PACKET_IS_TERMINAL_RST));
+            }
+            break;
+    }
+    return (FW_PACKET_IS_BORING);
+}
+
+int
+fw_packet_verify_scan(struct firepack **fp)
+{
+    struct libnet_ipv4_hdr *ip_hdr;
+    struct libnet_icmpv4_hdr *icmp_hdr;
+    struct libnet_ipv4_hdr *o_ip_hdr;
+    struct libnet_tcp_hdr *tcp_hdr;
+
+    ip_hdr = (struct libnet_ipv4_hdr *)((*fp)->packet +
+            (*fp)->packet_offset);
+
+    if (ip_hdr->ip_src.s_addr == (*fp)->sin.sin_addr.s_addr)
+    {
+        /* packets we send are of no interest to us here. */
+        return (FW_PACKET_IS_BORING);
+    }
+    switch (ip_hdr->ip_p)
+    {
+        case IPPROTO_ICMP:
+            icmp_hdr = (struct libnet_icmpv4_hdr *)
+                    ((*fp)->packet + (*fp)->packet_offset + LIBNET_IPV4_H);
+
+            switch (icmp_hdr->icmp_type)
+            {
+                case ICMP_TIMXCEED:
+                    if (icmp_hdr->icmp_code != ICMP_TIMXCEED_INTRANS)
+                    {
+                        /*
+                         *  Packet was from an expired IP frag queue
+                         *  reassembly timer.  Nothing we want.
+                         */
+                        break;
+                    }
+                case ICMP_UNREACH:
+                    /*
+                     *  Point to the original IPv4 header inside the ICMP
+                     *  message's payload.  An IPv4 header is
+                     *  LIBNET_IPV4_H bytes long and both ICMP unreachable
+                     *  and time exeeed headers are 8 bytes.
+                     */
+                    o_ip_hdr = (struct libnet_ipv4_hdr *)
+                            ((*fp)->packet + (*fp)->packet_offset
+                            + LIBNET_IPV4_H + 8);
+
+                    /*
+                     *  Check the IP header of the packet that caused the
+                     *  unreachable for our markings which include:
+                     *  Original IP ID: set to the process id.
+                     *  Original IP source address: our source address.
+                     */
+                    if (FW_IS_OURS(o_ip_hdr, fp))
+                    {
+                        /* the packet made it through the filter */
+                        return ((icmp_hdr->icmp_type == ICMP_TIMXCEED) ?
+                                FW_PORT_IS_OPEN_TTL_EX :
+                                FW_PORT_IS_OPEN_UNREACH);
+                    }
+                    break;
+                default:
+                    break;
+        }
+        case IPPROTO_TCP:
+            if ((*fp)->protocol != IPPROTO_TCP)
+            {
+                /*
+                 *  We're only interested in TCP packets if this is a
+                 *  TCP-based scan.
+                 */
+                break;
+            }
+            tcp_hdr = (struct libnet_tcp_hdr *)
+                    ((*fp)->packet +
+                    (*fp)->packet_offset + LIBNET_IPV4_H);
+
+            /*
+             *  We only care about SYN|ACK and RST|ACK packets.
+             *  The rest can burn.
+             */
+            if (!(tcp_hdr->th_flags & TH_SYN) &&
+                !(tcp_hdr->th_flags & TH_RST))
+            {
+                break;
+            }
+
+            if ((*fp)->flags & FW_STRICT_RFC)
+            {
+                /*
+                 *  Strict RFC compliance dictates that an RST or
+                 *  an SYN|ACK will have our SEQ + 1 as the ACK number
+                 *  also, the RST will have the ACK bit set).  This is of 
+                 *  course, assuming the packet is ours.
+                 */
+                if (ntohl(tcp_hdr->th_ack) != (*fp)->seq + 1)
+                {
+                    break;
+                }
+            }
+
+            if (ntohs(tcp_hdr->th_dport) == (*fp)->sport &&
+                    ntohs(tcp_hdr->th_sport) == (*fp)->dport)
+            {
+                /* the packet made it through the filter */
+                return (((tcp_hdr->th_flags & TH_SYN) ?
+                        FW_PORT_IS_OPEN_SYNACK :
+                        FW_PORT_IS_OPEN_RST));
+            }
+            break;
+        default:
+            break;
+    }
+    return (FW_PACKET_IS_BORING);
+}
+
+/* EOF */
+/*
+ *  $Id: report.c,v 1.3 2002/05/14 23:28:37 route Exp $
+ *
+ *  Firewalk 5.0
+ *  report.c - Reporting code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+#include "../include/unreachables.h"
+
+void
+fw_report(int class, struct firepack **fp)
+{
+    struct libnet_ipv4_hdr *ip_hdr;
+
+    ip_hdr = (struct libnet_ipv4_hdr *)((*fp)->packet + (*fp)->packet_offset);
+
+    if (((*fp)->flags & FW_BOUND) && ip_hdr->ip_src.s_addr == (*fp)->metric)
+    {
+        /* adjacent target gateway and metric */
+        printf("A! ");
+    }
+    switch (class)
+    {
+        case FW_PACKET_IS_TTL_EX_EN_ROUTE:
+            printf("expired [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr, 
+                    ((*fp)->flags) & FW_RESOLVE));
+            break;
+        case FW_PACKET_IS_UNREACH_EN_ROUTE:
+            printf("unreach %s [%s]\n",
+                    fw_get_unreach_code(fp),
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            break;
+        case FW_PACKET_IS_TERMINAL_TTL_EX:
+            printf("terimnal (expired) [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            break;
+        case FW_PACKET_IS_TERMINAL_UNREACH:
+            printf("terminal (unreach %s) [%s]\n",
+                    fw_get_unreach_code(fp),
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            break;
+        case FW_PACKET_IS_TERMINAL_SYNACK:
+            printf("terminal (synack) [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            break;
+        case FW_PACKET_IS_TERMINAL_RST:
+            printf("terminal (rst) [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            break;
+        case FW_PORT_IS_OPEN_SYNACK:
+            printf("open (port listen) [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            (*fp)->stats.ports_open++;
+            break;
+        case FW_PORT_IS_OPEN_RST:
+            printf("open (port not listen) [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            (*fp)->stats.ports_open++;
+            break;
+        case FW_PORT_IS_OPEN_UNREACH:
+            printf("unknown (unreach %s) [%s]\n",
+                    fw_get_unreach_code(fp),
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            (*fp)->stats.ports_unknown++;
+            break;
+        case FW_PORT_IS_OPEN_TTL_EX:
+            printf("open (expired) [%s]\n",
+                    libnet_addr2name4(ip_hdr->ip_src.s_addr,
+                    ((*fp)->flags) & FW_RESOLVE));
+            (*fp)->stats.ports_open++;
+            break;
+        default:
+            break;
+    }
+}
+
+
+void
+fw_report_stats(struct firepack **fp)
+{
+    printf("\nTotal packets sent:                %ld\n"
+             "Total packet errors:               %ld\n"
+             "Total packets caught               %ld\n"
+             "Total packets caught of interest   %d\n"
+             "Total ports scanned                %d\n"
+             "Total ports open:                  %d\n"
+             "Total ports unknown:               %d\n",
+        (*fp)->stats.packets_sent, (*fp)->stats.packets_err,
+        (*fp)->stats.packets_caught, (*fp)->stats.packets_caught_interesting,
+        (*fp)->stats.ports_total, (*fp)->stats.ports_open,
+        (*fp)->stats.ports_unknown);
+
+}
+
+
+char *
+fw_get_unreach_code(struct firepack **fp)
+{
+    struct libnet_icmpv4_hdr *icmp_hdr;
+
+    icmp_hdr = (struct libnet_icmpv4_hdr *)
+            ((*fp)->packet + (*fp)->packet_offset + LIBNET_IPV4_H);
+    if (icmp_hdr->icmp_code > 15)
+    {
+        return ("Unknown unreachable code");
+    }
+    return (unreachables[icmp_hdr->icmp_code]);
+}
+
+/* EOF */
+/*
+ *  $Id: signal.c,v 1.3 2002/05/14 00:17:52 route Exp $
+ *
+ *  Firewalk 5.0
+ *  signal.c - Signal handling code
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include "../include/firewalk.h"
+
+extern int loop;
+
+int
+catch_sig(int signo, void (*handler)())
+{
+    struct sigaction action;
+
+    /* install the new handler */
+    action.sa_handler = handler;
+
+    /* unblock all other signals */
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    if (sigaction(signo, &action, NULL) == -1)
+    {
+        return (-1);
+    }
+    else
+    {
+        return (1);
+    }
+}
+
+
+void
+catch_sigint(int nil)
+{
+    loop = 0;
+}
+
+/* EOF */
+/*
+ *  $Id: util.c,v 1.2 2002/05/14 00:17:52 route Exp $
+ *
+ *  Firewalk 5.0
+ *  util.c - Misc routines
+ *
+ *  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+ *  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+ *  http://www.packetfactory.net/firewalk
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+#if (HAVE_CONFIG_H)
+#include "../include/config.h"
+#endif
+#include <stdarg.h>
+#include "../include/firewalk.h"
+
+int
+fw_str2int(register const char *str, register const char *what,
+    register int min, register int max)
+{
+    register const char *cp;
+    register int val;
+    char *ep;
+
+    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+    {
+        cp = str + 2;
+        val = (int)strtol(cp, &ep, 16);
+    }
+    else
+    {
+        val = (int)strtol(str, &ep, 10);
+    }
+
+    if (*ep != '\0')
+    {
+        fprintf(stderr, "\"%s\" bad value for %s \n", str, what);
+        exit(EXIT_FAILURE);
+    }
+    if (val < min && min >= 0)
+    {
+        if (min == 0)
+        {
+            fprintf(stderr, "%s must be >= %d\n", what, min);
+            return (-1);
+        }
+        else
+        {
+            fprintf(stderr, "%s must be > %d\n", what, min - 1);
+            exit(EXIT_FAILURE);
+        }
+    }
+    if (val > max && max >= 0)
+    {
+        fprintf(stderr, "%s must be <= %d\n", what, max);
+        exit(EXIT_FAILURE);
+    }
+    return (val);
+}
+
+int
+fw_prot_select(char *protocol)
+{
+    char *supp_protocols[] = {"UDP", "TCP", 0};
+    int i;
+
+    for (i = 0; supp_protocols[i]; i++)
+    {
+        if ((!strcasecmp(supp_protocols[i], protocol)))
+        {
+            switch (i)
+            {
+                case 0:
+                    /* UDP */
+                    return (IPPROTO_UDP);
+                case 1:
+                    /* TCP */
+                    return (IPPROTO_TCP);
+                default:
+                    fprintf(stderr, "unsupported protocol: %s\n",
+                            protocol);
+                    exit(EXIT_FAILURE);
+            }
+        }
+    }
+    fprintf(stderr, "unsupported protocol: %s\n", protocol);
+    return (-1);
+}
+
+/* EOF */

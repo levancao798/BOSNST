@@ -1,0 +1,14 @@
+===============================================================================
+    $Id: TODO,v 1.1.1.1 2002/05/08 16:28:34 route Exp $
+    FIREWALK 5.0 (c) 1998 - 2002 Mike D. Schiffman <mike@infonexus.com>
+                                 http://www.packetfactory.net/firewalk
+===============================================================================
+
+
+    TODO LIST
+
+    - Parallel scanning operations
+    - Flexible and robust reporting
+    - Firewall and host fingerprinting
+
+EOF

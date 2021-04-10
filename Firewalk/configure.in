@@ -1,0 +1,110 @@
+#   $Id: configure.in,v 1.3 2002/05/14 00:17:52 route Exp $
+#
+#   Firewalk 5.0
+#   Firewalk autoconfiguration information file
+#
+#  Copyright (c) 1998 - 2002 Mike D. Schiffman  <mike@infonexus.com>
+#  Copyright (c) 1998, 1999 David E. Goldsmith <dave@infonexus.com>
+#  http://www.packetfactory.net/firewalk
+#
+#  All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+#
+# Process this file with autoconf to produce a configure script.
+
+AC_INIT(src/main.c)
+FIREWALK_VERSION=`cat VERSION`
+AC_MSG_RESULT(beginning autoconfiguration process for firewalk-$FIREWALK_VERSION...)
+AC_CANONICAL_SYSTEM
+
+AM_INIT_AUTOMAKE(firewalk, $FIREWALK_VERSION)
+AM_CONFIG_HEADER(include/config.h)
+
+AC_SUBST(FIREWALK_VERSION)
+AC_PREFIX_DEFAULT(/usr/local)
+
+dnl
+dnl Use these compiler flags unless overridden at the command line.
+dnl
+dnl
+dnl Check for typedefs, structures, and compiler characteristics
+dnl
+AC_PROG_CC
+AC_PROG_GCC_TRADITIONAL
+if test "$GCC" = yes ; then
+    CFLAGS="$CFLAGS -Wall"
+fi
+
+dnl
+dnl Checks for libraries.
+dnl
+AC_CHECK_LIB(net, libnet_build_ipv4, , AC_MSG_ERROR(We need libnet 1.1.0 or better.  http://www.packetfactory.net))
+AC_CHECK_LIB(pcap, pcap_open_live, , AC_MSG_ERROR(No libpcap?  http://www.tcpdump.org.))
+AC_CHECK_LIB(dnet, arp_get, , AC_MSG_ERROR(No libdnet?  http://libdnet.sourceforge.net.))
+
+dnl
+dnl Checks for header files.
+dnl
+AC_HEADER_STDC
+
+dnl
+dnl 	Checks for typedefs, structures, and compiler characteristics.
+dnl
+AC_C_CONST
+
+dnl
+dnl Checks for library functions.
+dnl
+AC_CHECK_FUNCS(strerror)
+
+AC_MSG_CHECKING(for bpf)
+
+if test -r /dev/bpf0 ; then
+    AC_DEFINE(HAVE_BPF)
+    AC_MSG_RESULT(yes)
+elif test -c /dev/bpf0 ; then           # check again in case not readable
+    AC_DEFINE(HAVE_BPF)
+    AC_MSG_RESULT(yes)
+else
+    AC_MSG_RESULT(no)
+fi
+
+dnl
+dnl Sets OS specific CPP directives.
+dnl
+case "$target_os" in
+
+*solaris*)
+    AC_DEFINE(HAVE_SOLARIS)
+    AC_CHECK_LIB(socket, socket, , AC_MSG_ERROR(libsocket not found.))
+    AC_CHECK_LIB(nsl, gethostbyname, , AC_MSG_ERROR(libnsl not found.))
+    AC_SUBST(ADDITIONAL_LIBS)
+    ADDITIONAL_LIBS='-lsocket -lnsl'
+    ;;
+
+esac
+
+AC_OUTPUT(Makefile src/Makefile version.h)
+
+dnl EOF

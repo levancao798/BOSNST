@@ -1,0 +1,37 @@
+===============================================================================
+    $Id$
+    BOSNST 1.0 (c) 2002 Mike D. Schiffman <mike@infonexus.com>
+                               http://www.wiley.com/schiffman
+===============================================================================
+
+    Building Open Source Network Security Tools Sample Code
+
+    README
+
+    The following 11 examples correspond with chapters in the Wiley book
+    Building Open Source Network Security Tools.  If you have this tarball
+    but not the book, this code will be of limited value to you.  I urge
+    you to purchase the book to understand the model after which these tools
+    are patterned.  The book's main URL is:
+    http://www.wiley.com/cda/product/0,,0471205443,00.html.
+
+    Stroke          - libpcap component sample code
+    Punch           - libnet component sample code
+    Lilt            - libnids component sample code
+    Legerdemain     - libsf component sample code
+    Clutch          - libdnet component sample code
+    Roil            - openssl component sample code
+    Scoop           - passive reconaissance technique sample code
+    Knock           - active reconaissance technique sample code
+    Sift            - attack and penetration technique sample code
+    Descry          - defensive technique sample code
+    Firewalk        - "the tool"
+
+    Note that since Lilt is built on top of the libnids-1.16 component
+    which is in turn built on top of the libnet-1.0.x component, it
+    requires the older 1.0.x version of libnet to be installed on the
+    system.  All of the other programs that use libnet require the newer
+    more robust version 1.1.0 (the version covered in the book).
+
+
+EOF

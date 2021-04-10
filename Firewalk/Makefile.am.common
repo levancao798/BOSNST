@@ -1,0 +1,10 @@
+# $Id: Makefile.am.common,v 1.2 2002/05/10 00:03:53 route Exp $
+#
+# Firewalk automake information file
+# Copyright (c) 1998 - 2002 Mike D. Schiffman <mike@infonexus.com>
+# All rights reserved.
+#
+
+AUTOMAKE_OPTIONS = foreign no-dependencies
+ 
+DISTCLEANFILES = *~

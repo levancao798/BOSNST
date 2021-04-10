@@ -1,0 +1,26 @@
+#   Building Open Source Network Security Tools
+#   Clutch conf file - libdnet example code
+#
+#   Copyright (c) 2002 Mike D. Schiffman <mike@infonexus.com>
+#   All rights reserved.
+
+#
+#   ARP cache entries
+#
+
+ARP  1:1:1:1:1:1 -> 192.168.0.1
+ARP  2:2:2:2:2:2 -> 192.168.0.2
+ARP  3:3:3:3:3:3 -> 192.168.0.3
+ARP  4:4:4:4:4:4 -> 192.168.0.4
+ARP  5:5:5:5:5:5 -> 192.168.0.5
+
+
+#
+#   Route table entries
+#
+
+RTE 192.168.0.1 -> 127.0.0.1
+RTE 192.168.2.0 -> 192.168.1.1
+
+
+# EOF

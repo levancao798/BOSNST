@@ -1,0 +1,30 @@
+===============================================================================
+    $Id$
+    BOSNST 1.0 (c) 2002 Mike D. Schiffman <mike@infonexus.com>
+                               http://www.wiley.com/schiffman
+===============================================================================
+
+    Building Open Source Network Security Tools Sample Code
+
+    UPDATE
+
+    The 1.0.1 has the following updates over the 1.0 release:
+
+    - Sift 1.1 maintenence release:
+      - Moved the host resolution function call to the beginning of
+        build_packet() to catch non-resolvers before we actually build part
+        of the packet.
+      - Sift erroneously ignored ASCII 0x20 (space characters)
+      - Sift was not stepping over the proper number of bytes when skipping
+        over certain header information (it was off by one).
+      - A SNAPLEN of 150 bytes was too short.  I've increased this to 350
+        bytes which is sufficient.
+      - Changed the timeout character from * to <sift_time_out> this reduces
+        the false negatives we'd get from a DNS server with a version string
+        of "*".
+
+    - Addition of "stroker_ace.c" oui.txt manipulation program:
+      - stroker_ace will take a vanilla oui.txt file from IEEE and convert
+        it into a header file to be compiled into the stroke program.
+
+EOF
